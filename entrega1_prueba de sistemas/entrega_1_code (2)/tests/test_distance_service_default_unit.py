@@ -1,52 +1,50 @@
 
 import os, sys, unittest
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from geo_location import Position
 
+import grpc
+from geopy.distance import geodesic
+import distance_unary_pb2 as pb2
+import distance_unary_pb2_grpc as pb2_grpc
 
-EPS_IN  = 1e-4       # 0.0001  -> -89.9999 / +179.9999 (dentro)
-EPS_OUT = 1e-6       # 0.000001 -> -90.000001 / +180.000001 (fuera)
+HOST = "localhost:50051"
 
-class TestPositionBoundaries(unittest.TestCase):
-    # ---- Latitud ----
-    def test_latitude_exact_edges_are_valid(self):
-        Position(-90.0, 0.0, 0.0)
-        Position(+90.0, 0.0, 0.0)
+class TestDistanceServiceDefaultUnit(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.stub = pb2_grpc.DistanceServiceStub(grpc.insecure_channel(HOST))
+        try:
+            cls.stub.geodesic_distance(
+                pb2.SourceDest(
+                    source=pb2.Position(latitude=0.0, longitude=0.0),
+                    destination=pb2.Position(latitude=0.0, longitude=0.1),
+                    unit="km",
+                ),
+                timeout=1.0,
+            )
+            cls.server_up = True
+        except Exception:
+            cls.server_up = False
 
-    def test_latitude_just_inside_edges_are_valid(self):
-        Position(-90.0 + EPS_IN, 0.0, 0.0)
-        Position(+90.0 - EPS_IN, 0.0, 0.0)
+    def setUp(self):
+        if not self.server_up:
+            self.skipTest(f"gRPC server no disponible en {HOST}")
 
-    def test_latitude_below_min_raises(self):
-        with self.assertRaises(ValueError):
-            Position(-90.0 - EPS_OUT, 0.0, 0.0)
+    def test_default_unit_is_km_numerically(self):
 
-    def test_latitude_above_max_raises(self):
-        with self.assertRaises(ValueError):
-            Position(+90.0 + EPS_OUT, 0.0, 0.0)
+        lat1, lon1 = -12.3456, +23.4567
+        lat2, lon2 = -12.345599, +23.4567  
 
-    # ---- Longitud ----
-    def test_longitude_exact_edges_are_valid(self):
-        Position(0.0, -180.0, 0.0)
-        Position(0.0, +180.0, 0.0)
-
-    def test_longitude_just_inside_edges_are_valid(self):
-        Position(0.0, -180.0 + EPS_IN, 0.0)
-        Position(0.0, +180.0 - EPS_IN, 0.0)
-
-    def test_longitude_below_min_raises(self):
-        with self.assertRaises(ValueError):
-            Position(0.0, -180.0 - EPS_OUT, 0.0)
-
-    def test_longitude_above_max_raises(self):
-        with self.assertRaises(ValueError):
-            Position(0.0, +180.0 + EPS_OUT, 0.0)
-
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
-
-        self.assertAlmostEqual(r_km.distance, r_nm.distance * 1.852, delta=0.1)
+        r = self.stub.geodesic_distance(pb2.SourceDest(
+            source=pb2.Position(latitude=lat1, longitude=lon1),
+            destination=pb2.Position(latitude=lat2, longitude=lon2),
+            unit="",  # default
+        ))
+        expected_km = geodesic((lat1, lon1), (lat2, lon2)).km
+        self.assertAlmostEqual(r.distance, expected_km, delta=0.05)
+        self.assertEqual(r.unit, "km")
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
 
